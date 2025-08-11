@@ -1,0 +1,36 @@
+# Development Dockerfile for API Gateway
+FROM node:18-alpine
+
+# Install curl for health checks and nodemon for development
+RUN apk add --no-cache curl && npm install -g nodemon
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY gateway/package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm install
+
+# Copy source code
+COPY gateway/src/ ./src/
+COPY shared/ ./shared/
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S gateway -u 1001 && \
+    chown -R gateway:nodejs /app
+
+# Switch to non-root user
+USER gateway
+
+# Expose port and debugging port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Start with nodemon for development
+CMD ["nodemon", "--inspect=0.0.0.0:9229", "src/index.js"]

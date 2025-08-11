@@ -1,0 +1,89 @@
+# Test Docker Compose Configuration
+# Use this for running tests and CI/CD pipelines
+
+version: "3.8"
+
+services:
+  # Test MySQL Database
+  mysql-test:
+    image: mysql:8.0
+    container_name: lianxin-mysql-test
+    environment:
+      MYSQL_ROOT_PASSWORD: test_password
+      MYSQL_DATABASE: lianxin_test
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./services/user-service/db/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - lianxin-test-network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-ptest_password",
+        ]
+      timeout: 20s
+      retries: 5
+      interval: 10s
+
+  # Test Redis Cache
+  redis-test:
+    image: redis:7-alpine
+    container_name: lianxin-redis-test
+    command: redis-server --requirepass test_redis_password
+    ports:
+      - "6380:6379"
+    networks:
+      - lianxin-test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      timeout: 3s
+      retries: 3
+      interval: 10s
+
+  # User Service Tests
+  user-service-test:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile.test
+    container_name: lianxin-user-service-test
+    environment:
+      - NODE_ENV=test
+      - DB_HOST=mysql-test
+      - DB_NAME=lianxin_test
+      - DB_USER=test_user
+      - DB_PASSWORD=test_password
+      - REDIS_HOST=redis-test
+      - REDIS_PASSWORD=test_redis_password
+      - JWT_ACCESS_TOKEN_SECRET=test-jwt-access-secret
+      - JWT_REFRESH_TOKEN_SECRET=test-jwt-refresh-secret
+      - ENCRYPTION_PRIMARY_KEY=test-encryption-key-32-characters
+      - ENCRYPTION_SECONDARY_KEY=test-secondary-key-32-characters
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - ./services/user-service/src:/app/src:ro
+      - ./shared:/app/shared:ro
+      - ./test-results:/app/test-results
+    networks:
+      - lianxin-test-network
+    command: npm test
+
+networks:
+  lianxin-test-network:
+    driver: bridge
