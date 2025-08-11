@@ -10,7 +10,7 @@ require("dotenv").config();
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.GATEWAY_PORT || 3000;
 
 // Configure logger
 const logger = winston.createLogger({
