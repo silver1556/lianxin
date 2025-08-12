@@ -705,7 +705,12 @@ class RedisClient {
    * Get connection status
    */
   isReady() {
-    return this.isConnected && this.client && this.client.isReady;
+    try {
+      return this.isConnected && this.client && this.client.isReady();
+    } catch (error) {
+      // In case isReady() method doesn't exist or throws an error
+      return this.isConnected && this.client;
+    }
   }
 
   /**
