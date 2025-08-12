@@ -10,10 +10,29 @@ const logger = require("../utils/logger.util");
  */
 class RateLimitMiddleware {
   constructor() {
-    this.store = new RedisStore({
-      sendCommand: (...args) => redisClient.client.sendCommand(...args),
-      prefix: "rl:",
-    });
+    // Initialize store as null - will be created lazily when Redis is ready
+    this.store = null;
+  }
+
+  /**
+   * Get or create Redis store (lazy initialization)
+   */
+  getStore() {
+    if (!this.store && redisClient.client && redisClient.isReady()) {
+      try {
+        this.store = new RedisStore({
+          sendCommand: (...args) => redisClient.client.sendCommand(...args),
+          prefix: "rl:",
+        });
+      } catch (error) {
+        logger.error("Failed to create Redis store for rate limiting", {
+          error: error.message,
+        });
+        // Return null so rate limiting falls back to memory store
+        return null;
+      }
+    }
+    return this.store;
   }
 
   /**
@@ -21,7 +40,7 @@ class RateLimitMiddleware {
    */
   createRateLimit(options) {
     const defaultOptions = {
-      store: this.store,
+      store: this.getStore(), // Use lazy-loaded store
       standardHeaders: true,
       legacyHeaders: false,
       keyGenerator: (req) => {
@@ -53,6 +72,13 @@ class RateLimitMiddleware {
         return req.path === "/health";
       },
     };
+
+    // If Redis store is not available, log warning and use default memory store
+    if (!defaultOptions.store) {
+      logger.warn(
+        "Redis store not available for rate limiting, using memory store"
+      );
+    }
 
     return rateLimit({ ...defaultOptions, ...options });
   }
@@ -235,6 +261,12 @@ class RateLimitMiddleware {
   createSlidingWindowRateLimit(options) {
     return async (req, res, next) => {
       try {
+        // If Redis is not ready, skip rate limiting
+        if (!redisClient.isReady()) {
+          logger.warn("Redis not ready, skipping sliding window rate limit");
+          return next();
+        }
+
         const key = options.keyGenerator ? options.keyGenerator(req) : req.ip;
         const now = Date.now();
         const windowStart = now - options.windowMs;
@@ -293,6 +325,12 @@ class RateLimitMiddleware {
   createBurstRateLimit(burstMax, sustainedMax, windowMs) {
     return async (req, res, next) => {
       try {
+        // If Redis is not ready, skip rate limiting
+        if (!redisClient.isReady()) {
+          logger.warn("Redis not ready, skipping burst rate limit");
+          return next();
+        }
+
         const key = req.user?.userId || req.ip;
         const now = Date.now();
         const windowStart = now - windowMs;
@@ -368,6 +406,12 @@ class RateLimitMiddleware {
   createDistributedRateLimit(options) {
     return async (req, res, next) => {
       try {
+        // If Redis is not ready, skip rate limiting
+        if (!redisClient.isReady()) {
+          logger.warn("Redis not ready, skipping distributed rate limit");
+          return next();
+        }
+
         const key = options.keyGenerator ? options.keyGenerator(req) : req.ip;
         const redisKey = `dist_rl:${key}`;
         const ttl = Math.ceil(options.windowMs / 1000);
@@ -425,6 +469,12 @@ class RateLimitMiddleware {
   createAdaptiveRateLimit(baseMax, windowMs) {
     return async (req, res, next) => {
       try {
+        // If Redis is not ready, skip rate limiting
+        if (!redisClient.isReady()) {
+          logger.warn("Redis not ready, skipping adaptive rate limit");
+          return next();
+        }
+
         const key = req.user?.userId || req.ip;
         const redisKey = `adaptive:${key}`;
 
@@ -473,6 +523,10 @@ class RateLimitMiddleware {
    */
   async getRateLimitStatus(key, windowMs) {
     try {
+      if (!redisClient.isReady()) {
+        return null;
+      }
+
       const redisKey = `dist_rl:${key}`;
       const current = (await redisClient.get(redisKey)) || 0;
       const ttl = await redisClient.client.ttl(redisKey);
@@ -496,6 +550,10 @@ class RateLimitMiddleware {
    */
   async clearRateLimit(key, prefix = "dist_rl") {
     try {
+      if (!redisClient.isReady()) {
+        return false;
+      }
+
       const redisKey = `${prefix}:${key}`;
       const result = await redisClient.del(redisKey);
 
@@ -507,6 +565,25 @@ class RateLimitMiddleware {
         key,
       });
       return false;
+    }
+  }
+
+  /**
+   * Initialize Redis store after Redis connection is ready
+   */
+  async initializeRedisStore() {
+    try {
+      if (redisClient.isReady() && !this.store) {
+        this.store = new RedisStore({
+          sendCommand: (...args) => redisClient.client.sendCommand(...args),
+          prefix: "rl:",
+        });
+        logger.info("Redis store initialized for rate limiting");
+      }
+    } catch (error) {
+      logger.error("Failed to initialize Redis store for rate limiting", {
+        error: error.message,
+      });
     }
   }
 }
