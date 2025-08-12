@@ -1,5 +1,6 @@
-const redis = require('redis');
-const logger = require('../logging/logger');
+const { createClient, createCluster } = require("redis");
+const logger = require("../logging/logger");
+const redisConfig = require("./redis.config");
 
 /**
  * Redis Client Manager
@@ -9,62 +10,128 @@ class RedisClient {
   constructor() {
     this.client = null;
     this.isConnected = false;
-    this.config = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT) || 6379,
-      password: process.env.REDIS_PASSWORD || null,
-      db: parseInt(process.env.REDIS_DB) || 0,
-      connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT) || 10000,
-      commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT) || 5000,
-      retryDelayOnFailover: parseInt(process.env.REDIS_RETRY_DELAY) || 100,
-      maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES) || 3,
-      lazyConnect: true,
-      keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE) || 30000
-    };
+
+    this.config = redisConfig;
+
+    // Bind methods if needed (optional)
+    this.connect = this.connect.bind(this);
+    this.quit = this.quit.bind(this);
   }
 
   /**
-   * Initialize Redis connection
+   * Initialize Redis connection or cluster connection
    */
   async connect() {
     try {
-      this.client = redis.createClient(this.config);
-      
-      // Event handlers
-      this.client.on('connect', () => {
-        logger.info('Redis client connected');
+      if (this.config.cluster.enabled) {
+        // Setup cluster client
+        const clusterNodes = this.config.cluster.nodes;
+        const clusterOptions = {
+          rootNodes: clusterNodes,
+          defaults: {
+            socket: {
+              connectTimeout: this.config.connectTimeout,
+              tls: this.config.enableTLS ? this.config.tls : undefined,
+              keepAlive: this.config.keepAlive,
+            },
+            password: this.config.password,
+            database: this.config.db,
+            maxRetriesPerRequest: this.config.maxRetriesPerRequest,
+            retryStrategy: (times) => {
+              const delay =
+                this.config.retryDelayOnFailover * Math.min(times, 10);
+              logger.warn(
+                `Redis cluster retry attempt #${times}, retrying in ${delay}ms`
+              );
+              return delay;
+            },
+          },
+        };
+
+        this.client = createCluster(clusterOptions);
+      } else {
+        // Single node Redis client
+        this.client = createClient({
+          socket: {
+            host: this.config.host,
+            port: this.config.port,
+            connectTimeout: this.config.connectTimeout,
+            tls: this.config.enableTLS ? this.config.tls : undefined,
+            keepAlive: this.config.keepAlive,
+            lazyConnect: this.config.lazyConnect,
+          },
+          password: this.config.password,
+          database: this.config.db,
+          maxRetriesPerRequest: this.config.maxRetriesPerRequest,
+          retryStrategy: (times) => {
+            const delay =
+              this.config.retryDelayOnFailover * Math.min(times, 10);
+            logger.warn(
+              `Redis retry attempt #${times}, retrying in ${delay}ms`
+            );
+            return delay;
+          },
+        });
+      }
+
+      // Register event listeners
+      this.client.on("connect", () => {
         this.isConnected = true;
+        if (
+          this.config.enableLogging &&
+          ["debug", "info", "warn", "error"].includes(this.config.logLevel)
+        ) {
+          logger.info("Redis client connected");
+        }
       });
-      
-      this.client.on('error', (error) => {
-        logger.error('Redis client error', { error: error.message });
+
+      this.client.on("ready", () => {
+        if (
+          this.config.enableLogging &&
+          ["debug", "info"].includes(this.config.logLevel)
+        ) {
+          logger.info("Redis client is ready");
+        }
+      });
+
+      this.client.on("error", (err) => {
         this.isConnected = false;
+        logger.error("Redis client error", { error: err.message });
       });
-      
-      this.client.on('end', () => {
-        logger.info('Redis client disconnected');
+
+      this.client.on("end", () => {
         this.isConnected = false;
+        if (this.config.enableLogging) {
+          logger.info("Redis client disconnected");
+        }
       });
-      
-      await this.client.connect();
-      
+
+      // Connect if not lazy
+      if (!this.config.lazyConnect) {
+        await this.client.connect();
+      }
+
       // Test connection
       await this.ping();
-      
-      logger.info('Redis connection established', {
-        host: this.config.host,
-        port: this.config.port,
-        db: this.config.db
-      });
-      
+
+      if (this.config.enableLogging) {
+        logger.info("Redis connection established", {
+          host: this.config.host,
+          port: this.config.port,
+          db: this.config.db,
+          cluster: this.config.cluster.enabled,
+        });
+      }
+
       return this.client;
     } catch (error) {
-      logger.error('Failed to connect to Redis', {
+      logger.error("Failed to connect to Redis", {
         error: error.message,
         config: {
           host: this.config.host,
-          port: this.config.port
-        }
+          port: this.config.port,
+          cluster: this.config.cluster.enabled,
+        },
       });
       throw error;
     }
@@ -76,33 +143,34 @@ class RedisClient {
   async ping() {
     try {
       const result = await this.client.ping();
-      logger.debug('Redis ping successful', { result });
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis ping successful", { result });
+      }
       return result;
     } catch (error) {
-      logger.error('Redis ping failed', { error: error.message });
+      logger.error("Redis ping failed", { error: error.message });
       throw error;
     }
   }
 
   /**
-   * Set key-value pair
+   * Set key-value pair with optional TTL in seconds
    */
   async set(key, value, ttl = null) {
     try {
       const serializedValue = JSON.stringify(value);
-      
+
       if (ttl) {
         await this.client.setEx(key, ttl, serializedValue);
       } else {
         await this.client.set(key, serializedValue);
       }
-      
-      logger.debug('Redis SET operation', { key, ttl });
+
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis SET operation", { key, ttl });
+      }
     } catch (error) {
-      logger.error('Redis SET failed', {
-        error: error.message,
-        key
-      });
+      logger.error("Redis SET failed", { error: error.message, key });
       throw error;
     }
   }
@@ -113,19 +181,21 @@ class RedisClient {
   async get(key) {
     try {
       const value = await this.client.get(key);
-      
+
       if (value === null) {
-        logger.debug('Redis GET cache miss', { key });
+        if (this.config.enableLogging && this.config.logLevel === "debug") {
+          logger.debug("Redis GET cache miss", { key });
+        }
         return null;
       }
-      
-      logger.debug('Redis GET cache hit', { key });
+
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis GET cache hit", { key });
+      }
+
       return JSON.parse(value);
     } catch (error) {
-      logger.error('Redis GET failed', {
-        error: error.message,
-        key
-      });
+      logger.error("Redis GET failed", { error: error.message, key });
       throw error;
     }
   }
@@ -136,13 +206,12 @@ class RedisClient {
   async del(key) {
     try {
       const result = await this.client.del(key);
-      logger.debug('Redis DEL operation', { key, deleted: result });
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis DEL operation", { key, deleted: result });
+      }
       return result;
     } catch (error) {
-      logger.error('Redis DEL failed', {
-        error: error.message,
-        key
-      });
+      logger.error("Redis DEL failed", { error: error.message, key });
       throw error;
     }
   }
@@ -155,28 +224,23 @@ class RedisClient {
       const result = await this.client.exists(key);
       return result === 1;
     } catch (error) {
-      logger.error('Redis EXISTS failed', {
-        error: error.message,
-        key
-      });
+      logger.error("Redis EXISTS failed", { error: error.message, key });
       throw error;
     }
   }
 
   /**
-   * Set expiration for key
+   * Set expiration for key in seconds
    */
   async expire(key, ttl) {
     try {
       const result = await this.client.expire(key, ttl);
-      logger.debug('Redis EXPIRE operation', { key, ttl, success: result });
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis EXPIRE operation", { key, ttl, success: result });
+      }
       return result;
     } catch (error) {
-      logger.error('Redis EXPIRE failed', {
-        error: error.message,
-        key,
-        ttl
-      });
+      logger.error("Redis EXPIRE failed", { error: error.message, key, ttl });
       throw error;
     }
   }
@@ -187,29 +251,25 @@ class RedisClient {
   async mget(keys) {
     try {
       const values = await this.client.mGet(keys);
-      return values.map(value => value ? JSON.parse(value) : null);
+      return values.map((value) => (value ? JSON.parse(value) : null));
     } catch (error) {
-      logger.error('Redis MGET failed', {
-        error: error.message,
-        keys
-      });
+      logger.error("Redis MGET failed", { error: error.message, keys });
       throw error;
     }
   }
 
   /**
-   * Increment counter
+   * Increment counter for key
    */
   async incr(key) {
     try {
       const result = await this.client.incr(key);
-      logger.debug('Redis INCR operation', { key, value: result });
+      if (this.config.enableLogging && this.config.logLevel === "debug") {
+        logger.debug("Redis INCR operation", { key, value: result });
+      }
       return result;
     } catch (error) {
-      logger.error('Redis INCR failed', {
-        error: error.message,
-        key
-      });
+      logger.error("Redis INCR failed", { error: error.message, key });
       throw error;
     }
   }
@@ -221,12 +281,13 @@ class RedisClient {
     try {
       if (this.client && this.isConnected) {
         await this.client.quit();
-        logger.info('Redis connection closed');
+        this.isConnected = false;
+        if (this.config.enableLogging) {
+          logger.info("Redis connection closed");
+        }
       }
     } catch (error) {
-      logger.error('Error closing Redis connection', {
-        error: error.message
-      });
+      logger.error("Error closing Redis connection", { error: error.message });
       throw error;
     }
   }
@@ -244,11 +305,11 @@ class RedisClient {
   async flushdb() {
     try {
       await this.client.flushDb();
-      logger.warn('Redis database flushed');
+      if (this.config.enableLogging) {
+        logger.warn("Redis database flushed");
+      }
     } catch (error) {
-      logger.error('Redis FLUSHDB failed', {
-        error: error.message
-      });
+      logger.error("Redis FLUSHDB failed", { error: error.message });
       throw error;
     }
   }
