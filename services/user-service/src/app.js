@@ -33,12 +33,12 @@ class UserServiceApp {
   constructor() {
     this.app = express();
     this.port = securityConfig.app.port;
-    this.setupMiddleware();
+    this.setupBasicMiddleware();
     this.setupRoutes();
     this.setupErrorHandling();
   }
 
-  setupMiddleware() {
+  setupBasicMiddleware() {
     // Security middleware
     this.app.use(
       helmet({
@@ -82,12 +82,7 @@ class UserServiceApp {
     // Compression middleware
     this.app.use(compression());
 
-    // Global rate limiting
-    if (securityConfig.rateLimit.enabled) {
-      this.app.use(rateLimitMiddleware.globalRateLimit);
-    }
-
-    // Request logging middleware
+    // Request logging middleware (before rate limiting)
     this.app.use((req, res, next) => {
       req.requestId = require("uuid").v4();
       req.startTime = Date.now();
@@ -106,6 +101,14 @@ class UserServiceApp {
 
     // Audit middleware for all routes
     this.app.use(auditMiddleware.logActivity);
+  }
+
+  setupRateLimitingMiddleware() {
+    // Global rate limiting (only after Redis is ready)
+    if (securityConfig.rateLimit.enabled) {
+      this.app.use(rateLimitMiddleware.globalRateLimit);
+      logger.info("Rate limiting middleware initialized");
+    }
   }
 
   setupRoutes() {
@@ -467,6 +470,12 @@ class UserServiceApp {
         monitoring: redisConfig.monitoring.enabled,
         healthCheck: redisConfig.health.enabled,
       });
+
+      // Initialize Redis store for rate limiting after Redis is connected
+      await rateLimitMiddleware.initializeRedisStore();
+
+      // Setup rate limiting middleware now that Redis is ready
+      this.setupRateLimitingMiddleware();
 
       // Test Redis functionality
       await redisClient.set(
