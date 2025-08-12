@@ -2,12 +2,9 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
-const rateLimit = require("express-rate-limit");
-const { body, validationResult } = require("express-validator");
 
 // Internal imports
 const securityConfig = require("./config/security.config");
-const databaseConfig = require("./config/database.config");
 const logger = require("./utils/logger.util");
 const { AppError } = require("./errors/AppError");
 
@@ -30,6 +27,7 @@ const complianceController = require("./controllers/admin/compliance.controller"
 const apiResponse = require("../shared/utils/api.response");
 const mysqlPool = require("../shared/libraries/database/mysql.pool");
 const redisClient = require("../shared/libraries/cache/redis.client");
+const redisConfig = require("../shared/libraries/cache/redis.config");
 
 class UserServiceApp {
   constructor() {
@@ -157,6 +155,9 @@ class UserServiceApp {
     // Mount API routes
     this.app.use("/api/v1", apiV1);
 
+    // Setup Redis monitoring endpoints
+    this.setupRedisMonitoring();
+
     // 404 handler
     this.app.use("*", (req, res) => {
       res
@@ -280,6 +281,177 @@ class UserServiceApp {
     });
   }
 
+  /**
+   * Setup Redis monitoring and health checks
+   */
+  setupRedisMonitoring() {
+    // Add Redis metrics endpoint
+    this.app.get(
+      "/metrics/redis",
+      authMiddleware.authenticate,
+      authMiddleware.requireAdmin,
+      (req, res) => {
+        try {
+          const metrics = redisClient.getMetrics();
+          res
+            .status(200)
+            .json(
+              apiResponse.success(
+                metrics,
+                "Redis metrics retrieved successfully"
+              )
+            );
+        } catch (error) {
+          logger.error("Failed to get Redis metrics", { error: error.message });
+          res
+            .status(500)
+            .json(
+              apiResponse.error(
+                "METRICS_ERROR",
+                "Failed to retrieve Redis metrics",
+                req.requestId
+              )
+            );
+        }
+      }
+    );
+
+    // Add Redis health check endpoint
+    this.app.get("/health/redis", async (req, res) => {
+      try {
+        const isReady = redisClient.isReady();
+        const pingResult = await redisClient.ping();
+        const metrics = redisClient.getMetrics();
+
+        const healthStatus = {
+          status: isReady ? "healthy" : "unhealthy",
+          connected: isReady,
+          ping: pingResult,
+          hitRate: metrics.hitRate,
+          totalRequests: metrics.totalRequests,
+          errors: metrics.errors,
+          timestamp: new Date().toISOString(),
+        };
+
+        const statusCode = isReady ? 200 : 503;
+        res
+          .status(statusCode)
+          .json(
+            apiResponse.success(healthStatus, `Redis is ${healthStatus.status}`)
+          );
+      } catch (error) {
+        logger.error("Redis health check failed", { error: error.message });
+        res
+          .status(503)
+          .json(
+            apiResponse.error(
+              "REDIS_UNHEALTHY",
+              "Redis health check failed",
+              req.requestId,
+              { error: error.message }
+            )
+          );
+      }
+    });
+
+    // Add Redis configuration info endpoint (admin only)
+    this.app.get(
+      "/admin/redis/config",
+      authMiddleware.authenticate,
+      authMiddleware.requireAdmin,
+      (req, res) => {
+        try {
+          // Return non-sensitive configuration information
+          const configInfo = {
+            host: redisConfig.host,
+            port: redisConfig.port,
+            database: redisConfig.db,
+            cluster: {
+              enabled: redisConfig.cluster.enabled,
+              nodes: redisConfig.cluster.enabled
+                ? redisConfig.cluster.nodes.length
+                : 0,
+            },
+            cache: {
+              keyPrefix: redisConfig.cache.keyPrefix,
+              compression: redisConfig.cache.compression.enabled,
+              encryption: redisConfig.cache.serialization.enableEncryption,
+            },
+            monitoring: redisConfig.monitoring.enabled,
+            healthCheck: redisConfig.health.enabled,
+          };
+
+          res
+            .status(200)
+            .json(
+              apiResponse.success(configInfo, "Redis configuration retrieved")
+            );
+        } catch (error) {
+          logger.error("Failed to get Redis config", { error: error.message });
+          res
+            .status(500)
+            .json(
+              apiResponse.error(
+                "CONFIG_ERROR",
+                "Failed to retrieve Redis configuration",
+                req.requestId
+              )
+            );
+        }
+      }
+    );
+
+    // Add Redis cache clear endpoint (admin only)
+    this.app.post(
+      "/admin/redis/clear",
+      authMiddleware.authenticate,
+      authMiddleware.requireAdmin,
+      async (req, res) => {
+        try {
+          const { pattern } = req.body;
+
+          if (pattern === "all") {
+            await redisClient.flushdb();
+            logger.warn("Redis database flushed by admin", {
+              adminId: req.user.userId,
+              timestamp: new Date().toISOString(),
+            });
+          } else if (pattern) {
+            // For specific patterns, we would need to implement key scanning
+            // This is a basic implementation - in production, consider using Redis SCAN
+            throw new Error("Pattern-based cache clearing not implemented");
+          } else {
+            throw new Error("Invalid clear pattern");
+          }
+
+          res
+            .status(200)
+            .json(
+              apiResponse.success(
+                { cleared: true, pattern },
+                "Redis cache cleared successfully"
+              )
+            );
+        } catch (error) {
+          logger.error("Failed to clear Redis cache", {
+            error: error.message,
+            adminId: req.user?.userId,
+          });
+          res
+            .status(500)
+            .json(
+              apiResponse.error(
+                "CACHE_CLEAR_ERROR",
+                "Failed to clear Redis cache",
+                req.requestId,
+                { error: error.message }
+              )
+            );
+        }
+      }
+    );
+  }
+
   async start() {
     try {
       // Initialize database connection pool
@@ -288,7 +460,29 @@ class UserServiceApp {
 
       // Initialize Redis connection
       await redisClient.connect();
-      logger.info("Redis connection established");
+      logger.info("Redis connection established", {
+        host: redisConfig.host,
+        port: redisConfig.port,
+        cluster: redisConfig.cluster.enabled,
+        monitoring: redisConfig.monitoring.enabled,
+        healthCheck: redisConfig.health.enabled,
+      });
+
+      // Test Redis functionality
+      await redisClient.set(
+        "startup_test",
+        {
+          timestamp: new Date().toISOString(),
+          service: "user-service",
+        },
+        60
+      );
+
+      const testData = await redisClient.get("startup_test");
+      if (testData) {
+        logger.info("Redis functionality test passed");
+        await redisClient.del("startup_test");
+      }
 
       // Start background jobs
       require("./jobs/otp-cleanup.job");
@@ -300,6 +494,10 @@ class UserServiceApp {
           port: this.port,
           environment: process.env.NODE_ENV || "development",
           nodeVersion: process.version,
+          redis: {
+            connected: redisClient.isReady(),
+            metrics: redisClient.getMetrics(),
+          },
           timestamp: new Date().toISOString(),
         });
       });
@@ -318,9 +516,11 @@ class UserServiceApp {
     try {
       // Close database connections
       await mysqlPool.close();
+      logger.info("Database connection closed successfully");
 
-      // Close Redis connection
+      // Close Redis connection with proper cleanup
       await redisClient.quit();
+      logger.info("Redis connection closed successfully");
 
       logger.info("User service shut down successfully");
       process.exit(0);
