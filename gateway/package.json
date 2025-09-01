@@ -1,0 +1,48 @@
+{
+  "name": "lianxin-api-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for Lianxin social media platform",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "docker:build": "docker build -t lianxin-gateway .",
+    "docker:run": "docker run -p 3000:3000 lianxin-gateway"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^6.1.5",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^6.7.0",
+    "http-proxy-middleware": "^2.0.6",
+    "jsonwebtoken": "^9.0.0",
+    "dotenv": "^16.1.4",
+    "winston": "^3.8.2",
+    "uuid": "^9.0.0",
+    "axios": "^1.4.0",
+    "express-validator": "^6.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22",
+    "jest": "^29.5.0",
+    "eslint": "^8.57.1",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.27.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "api-gateway",
+    "microservices",
+    "nodejs",
+    "express",
+    "social-media"
+  ],
+  "author": "Lianxin Development Team",
+  "license": "PROPRIETARY"
+}

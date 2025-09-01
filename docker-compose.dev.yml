@@ -1,0 +1,269 @@
+# Development Docker Compose Configuration
+# Use this for local development with hot reloading and debugging
+
+version: "3.8"
+
+services:
+  # MySQL Database (same as production)
+  mysql:
+    image: mysql:8.0
+    container_name: lianxin-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "${DB_PORT:-3307}:3306" # dev uses 3307 on host to avoid conflicts
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+      - ./services/user-service/db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./mysql-config:/etc/mysql/conf.d:ro
+    networks:
+      - lianxin-dev-network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
+      timeout: 20s
+      retries: 10
+      interval: 30s
+      start_period: 40s
+
+  # Redis Cache (same as production)
+  redis:
+    image: redis:7-alpine
+    container_name: lianxin-redis-dev
+    ports:
+      - "${REDIS_PORT:-6380}:6379" # dev uses 6380 on host
+    volumes:
+      - ./redis-config/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_dev_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "ping"]
+      timeout: 5s
+      retries: 5
+      interval: 10s
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - lianxin-dev-network
+
+  # API Gateway (Development mode with nodemon)
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile.dev
+    container_name: lianxin-gateway-dev
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${GATEWAY_PORT}
+      - USER_SERVICE_URL=http://user-service:${USER_SERVICE_PORT}
+      - LOG_LEVEL=debug
+      - RATE_LIMIT_ENABLED=true
+    volumes:
+      - ./gateway/src:/app/src:ro
+      - ./shared:/app/shared:ro
+      - /app/node_modules
+    depends_on:
+      user-service:
+        condition: service_healthy
+    networks:
+      - lianxin-dev-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${GATEWAY_PORT}/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 30s
+
+  # User Service (Development mode with nodemon)
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile.dev
+    container_name: lianxin-user-service-dev
+    restart: unless-stopped
+    ports:
+      - "${USER_SERVICE_PORT:-3001}:3001"
+      - "9229:9229" # Node.js debugging port
+    environment:
+      - NODE_ENV=development
+      - PORT=${USER_SERVICE_PORT}
+      - DB_HOST=mysql
+      - DB_NAME=${DB_NAME_USER_SERVICE}
+      - DB_USER=${DB_USER_USER_SERVICE}
+      - DB_PASSWORD=${DB_PASSWORD_USER_SERVICE}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_ACCESS_TOKEN_SECRET=${JWT_ACCESS_TOKEN_SECRET:-dev-jwt-access-secret}
+      - JWT_REFRESH_TOKEN_SECRET=${JWT_REFRESH_TOKEN_SECRET:-dev-jwt-refresh-secret}
+      - JWT_PASSWORD_RESET_TOKEN_SECRET=${JWT_PASSWORD_RESET_TOKEN_SECRET:-dev-jwt-password-reset-secret}
+      - ENCRYPTION_PRIMARY_KEY=${ENCRYPTION_PRIMARY_KEY:-dev-encryption-key-32-characters}
+      - ENCRYPTION_SECONDARY_KEY=${ENCRYPTION_SECONDARY_KEY:-dev-secondary-key-32-characters}
+      - LOG_LEVEL=debug
+      - ENABLE_DEBUG_MODE=true
+    volumes:
+      # Mount source code for hot reloading
+      - ./services/user-service/src:/app/src:ro
+      # Mount database migrations folder for development
+      - ./services/user-service/db:/app/db:ro
+      - ./services/user-service/.sequelizerc:/app/.sequelizerc:ro
+      - ./services/user-service/seeders:/app/seeders:ro
+      # IMPORTANT: Mount shared folder for development
+      - ./shared:/app/shared:ro
+      # Mount logs directory
+      - ./services/user-service/logs:/app/logs
+      # Preserve node_modules in container
+      - /app/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lianxin-dev-network
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://localhost:${USER_SERVICE_PORT}/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 60s
+
+  # Database Administration
+  adminer:
+    image: adminer:4.8.1
+    container_name: lianxin-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+      ADMINER_DESIGN: pepa-linha
+    depends_on:
+      - mysql
+    networks:
+      - lianxin-dev-network
+
+  # Redis Commander
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: lianxin-redis-commander-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD}
+      HTTP_USER: admin
+      HTTP_PASSWORD: admin123
+    depends_on:
+      - redis
+    networks:
+      - lianxin-dev-network
+
+  # Media Service (Development mode with nodemon)
+  media-service:
+    build:
+      context: .
+      dockerfile: services/media-service/Dockerfile.dev
+    container_name: lianxin-media-service-dev
+    restart: unless-stopped
+    ports:
+      - "${MEDIA_SERVICE_PORT:-3002}:3002"
+      - "9230:9230" # Node.js debugging port
+    environment:
+      - NODE_ENV=development
+      - PORT=${MEDIA_SERVICE_PORT}
+      - DB_HOST=mysql
+      - DB_NAME=${DB_NAME_MEDIA_SERVICE}
+      - DB_USER=${DB_USER_MEDIA_SERVICE}
+      - DB_PASSWORD=${DB_PASSWORD_MEDIA_SERVICE}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_ACCESS_TOKEN_SECRET=${JWT_ACCESS_TOKEN_SECRET:-dev-jwt-access-secret}
+      - USER_SERVICE_URL=http://user-service:3001
+      - ALIBABA_CLOUD_REGION=${ALIBABA_CLOUD_REGION:-oss-cn-hangzhou}
+      - ALIBABA_ACCESS_KEY_ID=${ALIBABA_ACCESS_KEY_ID}
+      - ALIBABA_ACCESS_KEY_SECRET=${ALIBABA_ACCESS_KEY_SECRET}
+      - ALIBABA_BUCKET_NAME=${ALIBABA_BUCKET_NAME:-lianxin-media-dev}
+      - CLAMAV_ENABLED=true
+      - ENABLE_MOCK_STORAGE=true
+      - ENABLE_MOCK_MALWARE_SCANNER=false
+      - LOG_LEVEL=debug
+    volumes:
+      # Mount source code for hot reloading
+      - ./services/media-service/src:/app/src:ro
+      # Mount database migrations folder for development
+      - ./services/media-service/db:/app/db:ro
+      - ./services/media-service/.sequelizerc:/app/.sequelizerc:ro
+      # Mount shared folder
+      - ./shared:/app/shared:ro
+      # Mount temp directory for file processing
+      - ./services/media-service/temp:/app/temp
+      # Mount logs directory
+      - ./services/media-service/logs:/app/logs
+      # Preserve node_modules in container
+      - /app/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - lianxin-dev-network
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://localhost:${MEDIA_SERVICE_PORT}/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 60s
+
+  # ClamAV Antivirus Scanner
+  clamav:
+    image: clamav/clamav:latest
+    container_name: lianxin-clamav-dev
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_dev_data:/var/lib/clamav
+    networks:
+      - lianxin-dev-network
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 120s
+
+volumes:
+  mysql_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  clamav_dev_data:
+    driver: local
+
+networks:
+  lianxin-dev-network:
+    driver: bridge
