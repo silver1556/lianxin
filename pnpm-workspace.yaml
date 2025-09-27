@@ -1,0 +1,7 @@
+ignoredBuiltDependencies:
+  - '@scarf/scarf'
+  - msgpackr-extract
+  - sharp
+
+onlyBuiltDependencies:
+  - ffmpeg-static

@@ -1,0 +1,53 @@
+# ============================
+# 1. Base image
+# ============================
+FROM node:20-alpine AS base
+WORKDIR /app
+
+# Install build tools (for bcrypt / node-gyp)
+RUN apk add --no-cache python3 make g++
+
+# Install only production deps by default
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# ============================
+# 2. Development image
+# ============================
+FROM node:20-alpine AS dev
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+# Install dependencies (include dev for hot reload, migrations, linting, etc.)
+COPY package*.json ./
+RUN npm install
+
+# Copy source
+COPY . .
+
+# Expose ports (API + Node debugger)
+EXPOSE 3000 9229
+
+# Use nodemon for auto-reload in dev
+CMD ["npx", "nodemon", "--inspect=0.0.0.0:9229", "server.js"]
+
+# ============================
+# 3. Production image
+# ============================
+FROM node:20-alpine AS prod
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+# Copy only production deps
+COPY --from=base /app/node_modules ./node_modules
+
+# Copy full source
+COPY . .
+
+# Expose app port
+EXPOSE 3000
+
+# Run app
+CMD ["node", "server.js"]

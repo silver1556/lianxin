@@ -1,0 +1,276 @@
+# Production Docker Compose Configuration
+# Use this for production deployment with optimized settings
+
+version: "3.8"
+
+services:
+  # MySQL Database with production optimizations
+  mysql:
+    image: mysql:8.0
+    container_name: lianxin-mysql-prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    volumes:
+      - mysql_prod_data:/var/lib/mysql
+      - ./services/user-service/db/migrations:/docker-entrypoint-initdb.d:ro
+      - ./mysql-config:/etc/mysql/conf.d:ro
+      - ./backups/mysql:/backups
+    networks:
+      - lianxin-prod-network
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
+      timeout: 20s
+      retries: 10
+      interval: 30s
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis Cache with production settings
+  redis:
+    image: redis:7-alpine
+    container_name: lianxin-redis-prod
+    restart: always
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_prod_data:/data
+      - ./redis-config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - lianxin-prod-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      timeout: 3s
+      retries: 5
+      interval: 30s
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # API Gateway (Production)
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+      target: production
+    container_name: lianxin-gateway-prod
+    restart: always
+    expose:
+      - "${GATEWAY_PORT}"
+    environment:
+      - NODE_ENV=production
+      - PORT=${GATEWAY_PORT}
+      - USER_SERVICE_URL=http://user-service:${USER_SERVICE_PORT}
+      - LOG_LEVEL=warn
+      - RATE_LIMIT_ENABLED=true
+    depends_on:
+      user-service:
+        condition: service_healthy
+    networks:
+      - lianxin-prod-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${GATEWAY_PORT}/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # User Service (Production)
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+      target: production
+    container_name: lianxin-user-service-prod
+    restart: always
+    ports:
+      - "${USER_SERVICE_PORT}:${USER_SERVICE_PORT}"
+    environment:
+      - NODE_ENV=production
+      - PORT=${USER_SERVICE_PORT}
+      - DB_HOST=mysql
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - JWT_ACCESS_TOKEN_SECRET=${JWT_ACCESS_TOKEN_SECRET}
+      - JWT_REFRESH_TOKEN_SECRET=${JWT_REFRESH_TOKEN_SECRET}
+      - ENCRYPTION_PRIMARY_KEY=${ENCRYPTION_PRIMARY_KEY}
+      - ENCRYPTION_SECONDARY_KEY=${ENCRYPTION_SECONDARY_KEY}
+      - LOG_LEVEL=warn
+      - ENABLE_AUDIT_LOGGING=true
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/user-service/logs:/app/logs
+      - ./backups/user-service:/app/backups
+    networks:
+      - lianxin-prod-network
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://localhost:${USER_SERVICE_PORT}/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Nginx Load Balancer (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: lianxin-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - gateway
+    networks:
+      - lianxin-prod-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      timeout: 10s
+      retries: 3
+      interval: 30s
+
+  #clamav
+  clamav:
+    image: clamav/clamav:1.2.1
+    container_name: lianxin-clamav-dev
+    restart: unless-stopped
+    ports:
+      - "3310:3310" # TCP connection for Node
+    environment:
+      - CLAMAV_NO_CONFIG=false
+      - CLAMD_STARTUP_TIMEOUT=300
+      - CLAMD_CONF_TCPSOCKET=3310
+      - CLAMD_CONF_TCPADDR=0.0.0.0
+      - CLAMD_CONF_MAXCONNECTIONQUEUELENGTH=30
+      - CLAMD_CONF_MAXTHREADS=20
+      - CLAMD_CONF_READTIMEOUT=300
+      - CLAMD_CONF_COMMANDREADTIMEOUT=30
+      - CLAMD_CONF_MAXQUEUE=200
+      - CLAMD_CONF_IDLETIMEOUT=60
+      - CLAMD_CONF_MAXSCANSIZE=157286400 # 150MB
+      - CLAMD_CONF_MAXFILESIZE=104857600 # 100MB
+      - CLAMD_CONF_MAXRECURSION=10
+      - CLAMD_CONF_MAXFILES=15000
+      - CLAMD_CONF_MAXPARTITIONS=128
+      - CLAMD_CONF_MAXICONSPE=200
+      - CLAMD_CONF_PCREMATCHTIMEOUT=10000
+      - CLAMD_CONF_PCRERECMATCHTIMEOUT=10000
+      - CLAMD_CONF_BYTECODE=yes
+      - CLAMD_CONF_BYTECODESECURITY=TrustSigned
+      - CLAMD_CONF_BYTECODEMODE=Auto
+      - CLAMD_CONF_DETECTPUA=yes
+      - CLAMD_CONF_ALGORITHMICDETECTION=yes
+      - CLAMD_CONF_SCANARCHIVE=yes
+      - CLAMD_CONF_SCANOLE2=yes
+      - CLAMD_CONF_SCANPDF=yes
+      - CLAMD_CONF_SCANSWF=yes
+      - CLAMD_CONF_SCANHTML=yes
+      - CLAMD_CONF_SCANXMLDOCS=yes
+      - CLAMD_CONF_SCANMAIL=yes
+      - CLAMD_CONF_SCANPE=yes
+      - CLAMD_CONF_SCANELF=yes
+      - CLAMD_CONF_ARCHIVEBLOCKENCRYPTED=no
+      - CLAMD_CONF_DISABLECACHE=no
+      - CLAMD_CONF_FORECETODDISK=no
+      # Logging
+      - CLAMD_CONF_LOGFILE=/var/log/clamav/clamd.log
+      - CLAMD_CONF_LOGTIME=yes
+      - CLAMD_CONF_LOGCLEAN=no
+      - CLAMD_CONF_LOGVERBOSE=no
+      - CLAMD_CONF_LOGSYSLOG=yes
+      - CLAMD_CONF_LOGFACILITY=LOG_LOCAL6
+      # Fresh clam settings
+      - FRESHCLAM_CONF_UPDATELOGFILE=/var/log/clamav/freshclam.log
+      - FRESHCLAM_CONF_DATABASEMIRROR=database.clamav.net
+      - FRESHCLAM_CONF_CHECKS=24
+      - FRESHCLAM_CONF_LOGTIME=yes
+      - FRESHCLAM_CONF_LOGVERBOSE=no
+      - ENABLE_EICAR_TEST=true
+    volumes:
+      # Use bind mount for better performance and persistence
+      - clamav_dev_data:/var/lib/clamav
+      - clamav_dev_logs:/var/log/clamav
+      # Mount custom configuration if needed
+      - ./clamav-config/clamd.conf:/etc/clamav/clamd.conf:ro
+      - ./clamav-config/freshclam.conf:/etc/clamav/freshclam.conf:ro
+    networks:
+      - lianxin-dev-network
+    # Allocate more resources for better performance
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - |
+          # Check if clamd is listening on TCP port
+          nc -z 127.0.0.1 3310 && \
+          # Check if clamd responds to PING
+          echo "PING" | nc 127.0.0.1 3310 | grep -q "PONG" && \
+          # Check if virus definitions are present
+          test -f /var/lib/clamav/main.cvd -o -f /var/lib/clamav/main.cld
+      timeout: 30s
+      retries: 10
+      interval: 30s
+      start_period: 300s # Allow more time for virus DB download
+
+volumes:
+  mysql_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+
+networks:
+  lianxin-prod-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
