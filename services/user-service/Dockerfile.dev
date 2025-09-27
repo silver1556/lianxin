@@ -1,0 +1,41 @@
+# Development Dockerfile for User Service
+FROM node:22-alpine
+
+
+# Install curl for health checks and nodemon for development
+# Create non-root user
+# Create necessary directories
+RUN apk add --no-cache curl && \
+    npm install -g nodemon && \
+    addgroup -g 1001 -S nodejs && \
+    adduser -S userservice -u 1001 && \
+    mkdir -p /app/logs /app/uploads && \
+    chown -R userservice:nodejs /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY services/user-service/package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm install
+
+# Copy shared utilities FIRST
+COPY shared/ ./shared/
+
+# Copy source code
+COPY services/user-service/src/ ./src/
+
+# Switch to non-root user
+USER userservice
+
+# Expose port and debugging port
+EXPOSE 3001 9229
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3001/health || exit 1
+
+# Start with nodemon for development with debugging enabled
+CMD ["nodemon", "--inspect=0.0.0.0:9229", "src/app.js"]
