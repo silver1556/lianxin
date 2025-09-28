@@ -1,34 +1,59 @@
 /**
  * Dependency Injection Container
- * Manages all dependencies and their lifecycles
+ * Manages all dependencies and their lifecycles using contracts
  */
 class DependencyContainer {
   constructor() {
     this.dependencies = new Map();
     this.singletons = new Map();
     this.factories = new Map();
+    this.contracts = new Map();
+  }
+
+  /**
+   * Register a contract interface
+   */
+  registerContract(name, contractClass) {
+    this.contracts.set(name, contractClass);
+    return this;
   }
 
   /**
    * Register a singleton dependency
    */
-  registerSingleton(name, factory) {
-    this.factories.set(name, { type: 'singleton', factory });
+  registerSingleton(name, factory, contractName = null) {
+    this.factories.set(name, { 
+      type: 'singleton', 
+      factory,
+      contract: contractName 
+    });
     return this;
   }
 
   /**
    * Register a transient dependency
    */
-  registerTransient(name, factory) {
-    this.factories.set(name, { type: 'transient', factory });
+  registerTransient(name, factory, contractName = null) {
+    this.factories.set(name, { 
+      type: 'transient', 
+      factory,
+      contract: contractName 
+    });
     return this;
   }
 
   /**
    * Register an instance
    */
-  registerInstance(name, instance) {
+  registerInstance(name, instance, contractName = null) {
+    // Validate contract if specified
+    if (contractName && this.contracts.has(contractName)) {
+      const contractClass = this.contracts.get(contractName);
+      if (!(instance instanceof contractClass)) {
+        throw new Error(`Instance does not implement contract ${contractName}`);
+      }
+    }
+
     this.dependencies.set(name, instance);
     return this;
   }
@@ -55,6 +80,14 @@ class DependencyContainer {
 
     // Create instance
     const instance = await factoryInfo.factory(this);
+
+    // Validate contract if specified
+    if (factoryInfo.contract && this.contracts.has(factoryInfo.contract)) {
+      const contractClass = this.contracts.get(factoryInfo.contract);
+      if (!(instance instanceof contractClass)) {
+        throw new Error(`Instance '${name}' does not implement contract '${factoryInfo.contract}'`);
+      }
+    }
 
     // Store singleton
     if (factoryInfo.type === 'singleton') {
@@ -98,12 +131,48 @@ class DependencyContainer {
   }
 
   /**
+   * Get registered contracts
+   */
+  getRegisteredContracts() {
+    return Array.from(this.contracts.keys());
+  }
+
+  /**
+   * Validate all dependencies implement their contracts
+   */
+  async validateContracts() {
+    const errors = [];
+
+    for (const [name, factoryInfo] of this.factories.entries()) {
+      if (factoryInfo.contract && this.contracts.has(factoryInfo.contract)) {
+        try {
+          const instance = await this.resolve(name);
+          const contractClass = this.contracts.get(factoryInfo.contract);
+          
+          if (!(instance instanceof contractClass)) {
+            errors.push(`Dependency '${name}' does not implement contract '${factoryInfo.contract}'`);
+          }
+        } catch (error) {
+          errors.push(`Failed to validate contract for '${name}': ${error.message}`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(`Contract validation failed:\n${errors.join('\n')}`);
+    }
+
+    return true;
+  }
+
+  /**
    * Clear all dependencies (for testing)
    */
   clear() {
     this.dependencies.clear();
     this.singletons.clear();
     this.factories.clear();
+    this.contracts.clear();
   }
 
   /**
@@ -111,6 +180,11 @@ class DependencyContainer {
    */
   createChild() {
     const child = new DependencyContainer();
+    
+    // Copy contracts
+    for (const [name, contract] of this.contracts.entries()) {
+      child.contracts.set(name, contract);
+    }
     
     // Copy factories
     for (const [name, factory] of this.factories.entries()) {
@@ -123,6 +197,22 @@ class DependencyContainer {
     }
     
     return child;
+  }
+
+  /**
+   * Get dependency info for debugging
+   */
+  getDependencyInfo() {
+    return {
+      contracts: Array.from(this.contracts.keys()),
+      instances: Array.from(this.dependencies.keys()),
+      singletons: Array.from(this.singletons.keys()),
+      factories: Array.from(this.factories.keys()).map(name => ({
+        name,
+        type: this.factories.get(name).type,
+        contract: this.factories.get(name).contract
+      }))
+    };
   }
 }
 

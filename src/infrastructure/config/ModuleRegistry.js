@@ -1,26 +1,36 @@
 /**
  * Module Registry
- * Manages module registration and lifecycle
+ * Manages module registration and lifecycle with dependency validation
  */
 class ModuleRegistry {
   constructor() {
     this.modules = new Map();
     this.initializationOrder = [];
     this.isInitialized = false;
+    this.moduleContracts = new Map();
   }
 
   /**
-   * Register a module
+   * Register a module with its contract
    */
-  register(name, moduleClass, dependencies = []) {
+  register(name, moduleClass, dependencies = [], contractName = null) {
     this.modules.set(name, {
       name,
       moduleClass,
       dependencies,
+      contract: contractName,
       instance: null,
       initialized: false
     });
 
+    return this;
+  }
+
+  /**
+   * Register module contract
+   */
+  registerModuleContract(name, contractClass) {
+    this.moduleContracts.set(name, contractClass);
     return this;
   }
 
@@ -33,6 +43,9 @@ class ModuleRegistry {
     }
 
     try {
+      // Validate container has all required contracts
+      await this._validateContainerContracts(container);
+
       // Resolve dependency order
       const initOrder = this._resolveDependencyOrder();
       
@@ -42,6 +55,9 @@ class ModuleRegistry {
       for (const moduleName of initOrder) {
         await this._initializeModule(moduleName, container);
       }
+
+      // Validate all modules implement their contracts
+      await this._validateModuleContracts();
 
       this.isInitialized = true;
       console.log('All modules initialized successfully');
@@ -137,6 +153,23 @@ class ModuleRegistry {
     this.isInitialized = false;
   }
 
+  /**
+   * Get module dependency graph
+   */
+  getDependencyGraph() {
+    const graph = {};
+    
+    for (const [name, moduleInfo] of this.modules.entries()) {
+      graph[name] = {
+        dependencies: moduleInfo.dependencies,
+        contract: moduleInfo.contract,
+        initialized: moduleInfo.initialized
+      };
+    }
+
+    return graph;
+  }
+
   // Private methods
   async _initializeModule(name, container) {
     const moduleInfo = this.modules.get(name);
@@ -159,6 +192,14 @@ class ModuleRegistry {
 
       // Initialize module
       await moduleInstance.initialize(moduleDependencies);
+
+      // Validate module contract if specified
+      if (moduleInfo.contract && this.moduleContracts.has(moduleInfo.contract)) {
+        const contractClass = this.moduleContracts.get(moduleInfo.contract);
+        if (!(moduleInstance instanceof contractClass)) {
+          throw new Error(`Module '${name}' does not implement contract '${moduleInfo.contract}'`);
+        }
+      }
 
       // Store instance
       moduleInfo.instance = moduleInstance;
@@ -217,6 +258,34 @@ class ModuleRegistry {
     }
 
     return order;
+  }
+
+  async _validateContainerContracts(container) {
+    try {
+      await container.validateContracts();
+    } catch (error) {
+      throw new Error(`Container contract validation failed: ${error.message}`);
+    }
+  }
+
+  async _validateModuleContracts() {
+    const errors = [];
+
+    for (const [name, moduleInfo] of this.modules.entries()) {
+      if (moduleInfo.contract && this.moduleContracts.has(moduleInfo.contract)) {
+        const contractClass = this.moduleContracts.get(moduleInfo.contract);
+        
+        if (!(moduleInfo.instance instanceof contractClass)) {
+          errors.push(`Module '${name}' does not implement contract '${moduleInfo.contract}'`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(`Module contract validation failed:\n${errors.join('\n')}`);
+    }
+
+    return true;
   }
 }
 

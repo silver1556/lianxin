@@ -1,8 +1,8 @@
 /**
- * OTP Service Port (Interface)
- * Defines the contract for OTP operations
+ * OTP Service Contract
+ * Defines OTP operations interface
  */
-class OtpServicePort {
+class OtpService {
   /**
    * Generate and send OTP
    * @param {string} phone - Phone number
@@ -12,7 +12,7 @@ class OtpServicePort {
    * @returns {Promise<{verificationId: string, expiresIn: number}>}
    */
   async sendOtp(phone, countryCode, type, userId = null) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete OTP service');
   }
 
   /**
@@ -23,7 +23,7 @@ class OtpServicePort {
    * @returns {Promise<boolean>}
    */
   async verifyOtp(verificationId, otpCode, phoneHash) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete OTP service');
   }
 
   /**
@@ -33,16 +33,16 @@ class OtpServicePort {
    * @returns {Promise<boolean>}
    */
   async checkRateLimit(phone, type) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete OTP service');
   }
 
   /**
    * Cleanup expired OTPs
-   * @returns {Promise<number>} Number of cleaned OTPs
+   * @returns {Promise<number>}
    */
   async cleanupExpired() {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete OTP service');
   }
 }
 
-module.exports = OtpServicePort;
+module.exports = OtpService;

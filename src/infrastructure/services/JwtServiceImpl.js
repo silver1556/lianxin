@@ -1,24 +1,25 @@
 const jwt = require('jsonwebtoken');
+const JwtService = require('../../core/domain/user/contracts/JwtService');
 
 /**
- * JWT Service
- * Handles JWT token operations
+ * JWT Service Implementation
+ * Implements JwtService contract using jsonwebtoken library
  */
-class JwtService {
+class JwtServiceImpl extends JwtService {
   constructor(config, encryptionService) {
+    super();
     this.accessTokenSecret = config.jwt.accessTokenSecret;
     this.refreshTokenSecret = config.jwt.refreshTokenSecret;
+    this.passwordResetTokenSecret = config.jwt.passwordResetTokenSecret;
     this.accessTokenExpiry = config.jwt.accessTokenExpiry || '30m';
     this.refreshTokenExpiry = config.jwt.refreshTokenExpiry || '7d';
     this.algorithm = config.jwt.algorithm || 'HS256';
     this.issuer = config.jwt.issuer || 'lianxin-platform';
     this.audience = config.jwt.audience || 'lianxin-app';
+    this.clockTolerance = config.jwt.clockTolerance || 30;
     this.encryptionService = encryptionService;
   }
 
-  /**
-   * Generate access token
-   */
   generateAccessToken(payload, options = {}) {
     try {
       const tokenPayload = {
@@ -43,9 +44,6 @@ class JwtService {
     }
   }
 
-  /**
-   * Generate refresh token
-   */
   generateRefreshToken(payload, options = {}) {
     try {
       const tokenPayload = {
@@ -70,9 +68,6 @@ class JwtService {
     }
   }
 
-  /**
-   * Generate token pair
-   */
   generateTokenPair(payload, options = {}) {
     try {
       const accessToken = this.generateAccessToken(payload, options.access);
@@ -96,15 +91,13 @@ class JwtService {
     }
   }
 
-  /**
-   * Verify access token
-   */
   verifyAccessToken(token, options = {}) {
     try {
       const verifyOptions = {
         algorithm: this.algorithm,
         issuer: this.issuer,
         audience: this.audience,
+        clockTolerance: this.clockTolerance,
         ...options
       };
 
@@ -120,20 +113,21 @@ class JwtService {
         throw new Error('Access token has expired');
       } else if (error.name === 'JsonWebTokenError') {
         throw new Error('Invalid access token');
+      } else if (error.name === 'NotBeforeError') {
+        throw new Error('Token not active yet');
       }
+
       throw new Error('Token verification failed');
     }
   }
 
-  /**
-   * Verify refresh token
-   */
   verifyRefreshToken(token, options = {}) {
     try {
       const verifyOptions = {
         algorithm: this.algorithm,
         issuer: this.issuer,
         audience: this.audience,
+        clockTolerance: this.clockTolerance,
         ...options
       };
 
@@ -149,14 +143,52 @@ class JwtService {
         throw new Error('Refresh token has expired');
       } else if (error.name === 'JsonWebTokenError') {
         throw new Error('Invalid refresh token');
+      } else if (error.name === 'NotBeforeError') {
+        throw new Error('Token not active yet');
       }
+
       throw new Error('Refresh token verification failed');
     }
   }
 
-  /**
-   * Extract token from Authorization header
-   */
+  generatePasswordResetToken(payload) {
+    try {
+      const tokenPayload = {
+        ...payload,
+        type: 'password_reset',
+        iat: Math.floor(Date.now() / 1000)
+      };
+
+      return jwt.sign(tokenPayload, this.passwordResetTokenSecret, {
+        expiresIn: '10m',
+        issuer: this.issuer,
+        audience: this.audience
+      });
+    } catch (error) {
+      throw new Error(`Failed to generate password reset token: ${error.message}`);
+    }
+  }
+
+  verifyPasswordResetToken(token) {
+    try {
+      const decoded = jwt.verify(token, this.passwordResetTokenSecret, {
+        issuer: this.issuer,
+        audience: this.audience
+      });
+
+      if (decoded.type !== 'password_reset') {
+        throw new Error('Invalid token type');
+      }
+
+      return decoded;
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new Error('Password reset token has expired');
+      }
+      throw new Error('Invalid password reset token');
+    }
+  }
+
   extractToken(authHeader) {
     if (!authHeader) {
       throw new Error('Authorization header is missing');
@@ -171,9 +203,6 @@ class JwtService {
     return token;
   }
 
-  /**
-   * Decode token without verification
-   */
   decode(token) {
     try {
       return jwt.decode(token, { complete: true });
@@ -189,4 +218,4 @@ class JwtService {
   }
 }
 
-module.exports = JwtService;
+module.exports = JwtServiceImpl;

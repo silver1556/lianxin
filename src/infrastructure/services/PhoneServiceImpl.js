@@ -1,20 +1,19 @@
 const { parsePhoneNumberFromString } = require('libphonenumber-js/max');
+const PhoneService = require('../../core/domain/user/contracts/PhoneService');
 
 /**
- * Phone Service
- * Handles phone number validation and formatting
+ * Phone Service Implementation
+ * Implements PhoneService contract using libphonenumber-js
  */
-class PhoneService {
+class PhoneServiceImpl extends PhoneService {
   constructor(config) {
+    super();
     this.supportedCountryCodes = ['+86', '+852', '+853', '+886'];
     this.chinesePatterns = {
       mobile: /^1[3-9]\d{9}$/
     };
   }
 
-  /**
-   * Validate and parse phone number
-   */
   validatePhoneNumber(phoneNumber, countryCode) {
     // Validate inputs
     if (!phoneNumber) {
@@ -56,13 +55,10 @@ class PhoneService {
       countryCode: `+${phoneNumberObj.countryCallingCode}`,
       country: phoneNumberObj.country,
       type: phoneNumberObj.getType(),
-      carrier: this._getCarrierInfo(phoneNumberObj.nationalNumber, countryCode)
+      carrier: this.getCarrierInfo(phoneNumberObj.nationalNumber.toString())
     };
   }
 
-  /**
-   * Format phone number for display
-   */
   formatForDisplay(phoneNumber, format = 'national') {
     try {
       const phoneNumberObj = parsePhoneNumberFromString(phoneNumber);
@@ -86,9 +82,6 @@ class PhoneService {
     }
   }
 
-  /**
-   * Mask phone number for privacy
-   */
   maskPhoneNumber(phoneNumber) {
     try {
       const phoneNumberObj = parsePhoneNumberFromString(phoneNumber);
@@ -113,6 +106,33 @@ class PhoneService {
     }
   }
 
+  getCarrierInfo(nationalNumber) {
+    const prefix = nationalNumber.substring(0, 3);
+    const carrierMapping = {
+      // China Mobile
+      134: 'China Mobile', 135: 'China Mobile', 136: 'China Mobile',
+      137: 'China Mobile', 138: 'China Mobile', 139: 'China Mobile',
+      147: 'China Mobile', 150: 'China Mobile', 151: 'China Mobile',
+      152: 'China Mobile', 157: 'China Mobile', 158: 'China Mobile',
+      159: 'China Mobile', 178: 'China Mobile', 182: 'China Mobile',
+      183: 'China Mobile', 184: 'China Mobile', 187: 'China Mobile',
+      188: 'China Mobile', 198: 'China Mobile',
+
+      // China Unicom
+      130: 'China Unicom', 131: 'China Unicom', 132: 'China Unicom',
+      145: 'China Unicom', 155: 'China Unicom', 156: 'China Unicom',
+      166: 'China Unicom', 175: 'China Unicom', 176: 'China Unicom',
+      185: 'China Unicom', 186: 'China Unicom',
+
+      // China Telecom
+      133: 'China Telecom', 149: 'China Telecom', 153: 'China Telecom',
+      173: 'China Telecom', 177: 'China Telecom', 180: 'China Telecom',
+      181: 'China Telecom', 189: 'China Telecom', 199: 'China Telecom'
+    };
+
+    return carrierMapping[parseInt(prefix)] || 'Unknown';
+  }
+
   // Private helper methods
   _validateChinesePhoneNumber(nationalNumber) {
     const numberStr = nationalNumber.toString();
@@ -127,25 +147,6 @@ class PhoneService {
 
     return true;
   }
-
-  _getCarrierInfo(nationalNumber, countryCode) {
-    if (countryCode !== '+86') {
-      return null;
-    }
-
-    const prefix = nationalNumber.toString().substring(0, 3);
-    const carrierMapping = {
-      // China Mobile
-      134: 'China Mobile', 135: 'China Mobile', 136: 'China Mobile',
-      137: 'China Mobile', 138: 'China Mobile', 139: 'China Mobile',
-      // China Unicom  
-      130: 'China Unicom', 131: 'China Unicom', 132: 'China Unicom',
-      // China Telecom
-      133: 'China Telecom', 149: 'China Telecom', 153: 'China Telecom'
-    };
-
-    return carrierMapping[parseInt(prefix)] || 'Unknown';
-  }
 }
 
-module.exports = PhoneService;
+module.exports = PhoneServiceImpl;

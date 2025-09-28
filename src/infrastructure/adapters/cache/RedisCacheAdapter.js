@@ -1,16 +1,16 @@
-const CachePort = require('../../../core/domain/user/ports/CachePort');
+const CacheService = require('../../../core/domain/shared/contracts/CacheService');
 
 /**
  * Redis Cache Adapter
- * Implements CachePort using Redis
+ * Implements CacheService contract using Redis
  */
-class RedisAdapter extends CachePort {
+class RedisCacheAdapter extends CacheService {
   constructor(redisClient, config) {
     super();
     this.client = redisClient;
     this.config = config;
-    this.keyPrefix = config.cache.keyPrefix || 'lianxin:';
-    this.defaultTtl = config.cache.ttl.userProfileHot || 3600;
+    this.keyPrefix = config.cache?.keyPrefix || 'lianxin:';
+    this.defaultTtl = config.cache?.ttl?.userProfileHot || 3600;
   }
 
   async get(key) {
@@ -41,13 +41,13 @@ class RedisAdapter extends CachePort {
     }
   }
 
-  async del(key) {
+  async delete(key) {
     try {
       const fullKey = this._buildKey(key);
       const result = await this.client.del(fullKey);
       return result > 0;
     } catch (error) {
-      console.error('Redis del error:', error);
+      console.error('Redis delete error:', error);
       return false;
     }
   }
@@ -63,12 +63,12 @@ class RedisAdapter extends CachePort {
     }
   }
 
-  async incr(key) {
+  async increment(key) {
     try {
       const fullKey = this._buildKey(key);
       return await this.client.incr(fullKey);
     } catch (error) {
-      console.error('Redis incr error:', error);
+      console.error('Redis increment error:', error);
       throw error;
     }
   }
@@ -84,31 +84,12 @@ class RedisAdapter extends CachePort {
     }
   }
 
-  async ttl(key) {
-    try {
-      const fullKey = this._buildKey(key);
-      return await this.client.ttl(fullKey);
-    } catch (error) {
-      console.error('Redis ttl error:', error);
-      return -2;
-    }
-  }
-
-  async ping() {
-    try {
-      return await this.client.ping();
-    } catch (error) {
-      console.error('Redis ping error:', error);
-      return 'ERROR';
-    }
-  }
-
-  async flushAll() {
+  async flush() {
     try {
       const result = await this.client.flushdb();
       return result === 'OK';
     } catch (error) {
-      console.error('Redis flushAll error:', error);
+      console.error('Redis flush error:', error);
       return false;
     }
   }
@@ -123,11 +104,12 @@ class RedisAdapter extends CachePort {
     }
   }
 
+  // User-specific cache methods
   async cacheUserProfile(userId, profileData, type = 'hot') {
     const key = `user:profile:${type}:${userId}`;
     const ttl = type === 'hot' 
-      ? this.config.cache.ttl.userProfileHot 
-      : this.config.cache.ttl.userProfileFull;
+      ? this.config.cache?.ttl?.userProfileHot 
+      : this.config.cache?.ttl?.userProfileFull;
 
     return await this.set(key, profileData, ttl);
   }
@@ -146,11 +128,35 @@ class RedisAdapter extends CachePort {
 
     let success = true;
     for (const key of keys) {
-      const result = await this.del(key);
+      const result = await this.delete(key);
       if (!result) success = false;
     }
 
     return success;
+  }
+
+  // Rate limiting methods
+  async incrementRateLimit(key, windowSeconds) {
+    const fullKey = this._buildKey(`rate_limit:${key}`);
+    
+    const current = await this.client.incr(fullKey);
+    
+    if (current === 1) {
+      await this.client.expire(fullKey, windowSeconds);
+    }
+    
+    return current;
+  }
+
+  async getRateLimitCount(key) {
+    const fullKey = this._buildKey(`rate_limit:${key}`);
+    const count = await this.client.get(fullKey);
+    return parseInt(count) || 0;
+  }
+
+  async clearRateLimit(key) {
+    const fullKey = this._buildKey(`rate_limit:${key}`);
+    return await this.delete(fullKey);
   }
 
   // Private helper methods
@@ -186,4 +192,4 @@ class RedisAdapter extends CachePort {
   }
 }
 
-module.exports = RedisAdapter;
+module.exports = RedisCacheAdapter;

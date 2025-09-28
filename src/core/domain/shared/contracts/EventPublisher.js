@@ -1,24 +1,24 @@
 /**
- * Event Publisher Port (Interface)
- * Defines the contract for publishing domain events
+ * Event Publisher Contract
+ * Defines event publishing interface for domain events
  */
-class EventPublisherPort {
+class EventPublisher {
   /**
    * Publish domain event
-   * @param {Object} event - Domain event
+   * @param {DomainEvent} event - Domain event to publish
    * @returns {Promise<void>}
    */
   async publish(event) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete event publisher');
   }
 
   /**
    * Publish multiple events
-   * @param {Object[]} events - Array of domain events
+   * @param {DomainEvent[]} events - Array of domain events
    * @returns {Promise<void>}
    */
   async publishBatch(events) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete event publisher');
   }
 
   /**
@@ -28,7 +28,7 @@ class EventPublisherPort {
    * @returns {Promise<void>}
    */
   async subscribe(eventType, handler) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete event publisher');
   }
 
   /**
@@ -38,8 +38,8 @@ class EventPublisherPort {
    * @returns {Promise<void>}
    */
   async unsubscribe(eventType, handler) {
-    throw new Error('Method must be implemented by adapter');
+    throw new Error('Method must be implemented by concrete event publisher');
   }
 }
 
-module.exports = EventPublisherPort;
+module.exports = EventPublisher;

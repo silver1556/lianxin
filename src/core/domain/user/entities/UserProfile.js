@@ -1,24 +1,28 @@
+const DomainEvent = require('../../shared/events/DomainEvent');
+const { v4: uuidv4 } = require('uuid');
+
 /**
  * UserProfile Domain Entity
- * Represents user profile information
+ * Represents user profile information with privacy controls
  */
 class UserProfile {
   constructor({
-    id,
+    id = null,
     userId,
-    displayName,
-    firstName,
-    lastName,
-    bio,
-    avatarUrl,
-    coverPhotoUrl,
-    birthDate,
-    gender,
-    hometown,
-    livesIn,
-    occupation,
-    salary,
-    relationshipStatus,
+    displayName = null,
+    firstName = null,
+    lastName = null,
+    bio = null,
+    avatarUrl = null,
+    coverPhotoUrl = null,
+    birthDate = null,
+    gender = null,
+    hometown = null,
+    livesIn = null,
+    interestedIn = null,
+    occupation = null,
+    salary = null,
+    relationshipStatus = null,
     languages = [],
     hobbies = [],
     skills = [],
@@ -38,6 +42,7 @@ class UserProfile {
     this.gender = gender;
     this.hometown = hometown;
     this.livesIn = livesIn;
+    this.interestedIn = interestedIn;
     this.occupation = occupation;
     this.salary = salary;
     this.relationshipStatus = relationshipStatus;
@@ -47,6 +52,9 @@ class UserProfile {
     this.privacySettings = privacySettings;
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
+
+    // Domain events
+    this.domainEvents = [];
   }
 
   // Business Rules
@@ -105,11 +113,12 @@ class UserProfile {
     
     this.updatedAt = new Date();
     
-    return {
-      type: 'UserProfileUpdated',
-      userId: this.userId,
+    const event = new DomainEvent('UserProfileUpdated', this.userId, {
       changes
-    };
+    });
+
+    this.addDomainEvent(event);
+    return event;
   }
 
   updateAvatar(avatarUrl) {
@@ -117,12 +126,13 @@ class UserProfile {
     this.avatarUrl = avatarUrl;
     this.updatedAt = new Date();
 
-    return {
-      type: 'UserAvatarUpdated',
-      userId: this.userId,
+    const event = new DomainEvent('UserAvatarUpdated', this.userId, {
       oldAvatarUrl,
       newAvatarUrl: avatarUrl
-    };
+    });
+
+    this.addDomainEvent(event);
+    return event;
   }
 
   updateCoverPhoto(coverPhotoUrl) {
@@ -130,12 +140,13 @@ class UserProfile {
     this.coverPhotoUrl = coverPhotoUrl;
     this.updatedAt = new Date();
 
-    return {
-      type: 'UserCoverPhotoUpdated',
-      userId: this.userId,
+    const event = new DomainEvent('UserCoverPhotoUpdated', this.userId, {
       oldCoverPhotoUrl,
       newCoverPhotoUrl: coverPhotoUrl
-    };
+    });
+
+    this.addDomainEvent(event);
+    return event;
   }
 
   updatePrivacySettings(newSettings) {
@@ -143,12 +154,116 @@ class UserProfile {
     this.privacySettings = { ...this.privacySettings, ...newSettings };
     this.updatedAt = new Date();
 
-    return {
-      type: 'UserPrivacySettingsUpdated',
-      userId: this.userId,
+    const event = new DomainEvent('UserPrivacySettingsUpdated', this.userId, {
       oldSettings,
       newSettings: this.privacySettings
-    };
+    });
+
+    this.addDomainEvent(event);
+    return event;
+  }
+
+  updatePersonalInfo({
+    birthDate,
+    gender,
+    hometown,
+    livesIn,
+    interestedIn,
+    occupation,
+    salary,
+    relationshipStatus
+  }) {
+    const changes = {};
+
+    if (birthDate !== undefined) {
+      this.birthDate = birthDate;
+      changes.birthDate = birthDate;
+    }
+
+    if (gender !== undefined) {
+      this.gender = gender;
+      changes.gender = gender;
+    }
+
+    if (hometown !== undefined) {
+      this.hometown = hometown;
+      changes.hometown = hometown;
+    }
+
+    if (livesIn !== undefined) {
+      this.livesIn = livesIn;
+      changes.livesIn = livesIn;
+    }
+
+    if (interestedIn !== undefined) {
+      this.interestedIn = interestedIn;
+      changes.interestedIn = interestedIn;
+    }
+
+    if (occupation !== undefined) {
+      this.occupation = occupation;
+      changes.occupation = occupation;
+    }
+
+    if (salary !== undefined) {
+      this.salary = salary;
+      changes.salary = salary;
+    }
+
+    if (relationshipStatus !== undefined) {
+      this.relationshipStatus = relationshipStatus;
+      changes.relationshipStatus = relationshipStatus;
+    }
+
+    this.updatedAt = new Date();
+
+    const event = new DomainEvent('UserPersonalInfoUpdated', this.userId, {
+      changes
+    });
+
+    this.addDomainEvent(event);
+    return event;
+  }
+
+  updateInterests({ languages, hobbies, skills }) {
+    const changes = {};
+
+    if (languages !== undefined) {
+      this.languages = languages;
+      changes.languages = languages;
+    }
+
+    if (hobbies !== undefined) {
+      this.hobbies = hobbies;
+      changes.hobbies = hobbies;
+    }
+
+    if (skills !== undefined) {
+      this.skills = skills;
+      changes.skills = skills;
+    }
+
+    this.updatedAt = new Date();
+
+    const event = new DomainEvent('UserInterestsUpdated', this.userId, {
+      changes
+    });
+
+    this.addDomainEvent(event);
+    return event;
+  }
+
+  // Domain Events Management
+  addDomainEvent(event) {
+    this.domainEvents.push(event);
+  }
+
+  getDomainEvents() {
+    return [...this.domainEvents];
+  }
+
+  clearDomainEvents() {
+    this.domainEvents = [];
   }
 
   // Factory Methods
@@ -157,10 +272,19 @@ class UserProfile {
   }
 
   static createDefault(userId) {
+    const displayName = `user_${userId}`;
+    const now = new Date();
+    const birthDate18YearsAgo = new Date(
+      now.getFullYear() - 18,
+      now.getMonth(),
+      now.getDate()
+    );
+
     return new UserProfile({
       userId,
-      displayName: `user_${userId}`,
+      displayName,
       bio: '',
+      birthDate: birthDate18YearsAgo,
       languages: [],
       hobbies: [],
       skills: [],
@@ -187,12 +311,14 @@ class UserProfile {
       gender: data.gender,
       hometown: data.hometown,
       livesIn: data.lives_in,
+      interestedIn: data.interested_in,
       occupation: data.occupation,
       salary: data.salary,
       relationshipStatus: data.relationship_status,
       languages: data.languages || [],
       hobbies: data.hobbies || [],
       skills: data.skills || [],
+      privacySettings: data.privacy_settings || {},
       createdAt: data.created_at,
       updatedAt: data.updated_at
     });
@@ -212,12 +338,14 @@ class UserProfile {
       gender: this.gender,
       hometown: this.hometown,
       lives_in: this.livesIn,
+      interested_in: this.interestedIn,
       occupation: this.occupation,
       salary: this.salary,
       relationship_status: this.relationshipStatus,
       languages: this.languages,
       hobbies: this.hobbies,
       skills: this.skills,
+      privacy_settings: this.privacySettings,
       created_at: this.createdAt,
       updated_at: this.updatedAt
     };
@@ -230,12 +358,9 @@ class UserProfile {
       userId: this.userId,
       displayName: this.displayName,
       avatarUrl: this.avatarUrl,
-      isVerified: this.isVerified
+      bio: this.isFieldVisible('bio', viewerType) ? this.bio : null,
+      createdAt: this.createdAt
     };
-
-    if (this.isFieldVisible('bio', viewerType)) {
-      publicData.bio = this.bio;
-    }
 
     if (this.isFieldVisible('occupation', viewerType)) {
       publicData.occupation = this.occupation;
@@ -243,6 +368,14 @@ class UserProfile {
 
     if (this.isFieldVisible('hometown', viewerType)) {
       publicData.hometown = this.hometown;
+    }
+
+    if (this.isFieldVisible('languages', viewerType)) {
+      publicData.languages = this.languages;
+    }
+
+    if (this.isFieldVisible('hobbies', viewerType)) {
+      publicData.hobbies = this.hobbies;
     }
 
     return publicData;
@@ -262,6 +395,7 @@ class UserProfile {
       gender: this.gender,
       hometown: this.hometown,
       livesIn: this.livesIn,
+      interestedIn: this.interestedIn,
       occupation: this.occupation,
       salary: this.salary,
       relationshipStatus: this.relationshipStatus,

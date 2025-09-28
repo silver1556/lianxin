@@ -1,31 +1,28 @@
 const bcrypt = require('bcryptjs');
+const PasswordService = require('../../core/domain/user/contracts/PasswordService');
 
 /**
- * Password Service
- * Handles password operations
+ * Password Service Implementation
+ * Implements PasswordService contract using bcrypt
  */
-class PasswordService {
+class PasswordServiceImpl extends PasswordService {
   constructor(config) {
-    this.saltRounds = config.password.saltRounds || 12;
-    this.minLength = config.password.minLength || 8;
-    this.maxLength = config.password.maxLength || 128;
-    this.requireUppercase = config.password.requireUppercase !== false;
-    this.requireLowercase = config.password.requireLowercase !== false;
-    this.requireNumbers = config.password.requireNumbers !== false;
-    this.requireSpecialChars = config.password.requireSpecialChars !== false;
+    super();
+    this.saltRounds = config.password?.saltRounds || 12;
+    this.minLength = config.password?.minLength || 8;
+    this.maxLength = config.password?.maxLength || 128;
+    this.requireUppercase = config.password?.requireUppercase !== false;
+    this.requireLowercase = config.password?.requireLowercase !== false;
+    this.requireNumbers = config.password?.requireNumbers !== false;
+    this.requireSpecialChars = config.password?.requireSpecialChars !== false;
+    this.entropyMinimum = config.password?.entropyMinimum || 40;
   }
 
-  /**
-   * Hash password
-   */
   async hashPassword(password) {
     this.validatePassword(password);
     return await bcrypt.hash(password, this.saltRounds);
   }
 
-  /**
-   * Compare password with hash
-   */
   async comparePassword(password, hash) {
     if (!password || !hash) {
       return false;
@@ -33,9 +30,6 @@ class PasswordService {
     return await bcrypt.compare(password, hash);
   }
 
-  /**
-   * Validate password strength
-   */
   validatePassword(password) {
     if (!password) {
       throw new Error('Password is required');
@@ -74,12 +68,15 @@ class PasswordService {
       throw new Error('Password contains common patterns and is not secure');
     }
 
+    // Check entropy
+    const entropy = this._calculateEntropy(password);
+    if (entropy < this.entropyMinimum) {
+      throw new Error(`Password is too predictable. Entropy: ${entropy.toFixed(2)}, minimum required: ${this.entropyMinimum}`);
+    }
+
     return true;
   }
 
-  /**
-   * Generate secure password
-   */
   generateSecurePassword(length = 12) {
     const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
@@ -119,6 +116,15 @@ class PasswordService {
     return this._shuffleString(password);
   }
 
+  async isPasswordInHistory(password, passwordHistory) {
+    for (const entry of passwordHistory || []) {
+      if (await bcrypt.compare(password, entry.hash)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Private helper methods
   _hasCommonPatterns(password) {
     const commonPatterns = [
@@ -128,9 +134,32 @@ class PasswordService {
       /abc123/i,
       /admin/i,
       /(\w)\1{2,}/, // Repeated characters
+      /012345/,
+      /987654/,
+      /111111/,
+      /000000/
     ];
 
     return commonPatterns.some(pattern => pattern.test(password));
+  }
+
+  _calculateEntropy(password) {
+    if (!password) return 0;
+
+    const charset = this._getCharsetSize(password);
+    return password.length * Math.log2(charset);
+  }
+
+  _getCharsetSize(password) {
+    let charsetSize = 0;
+
+    if (/[a-z]/.test(password)) charsetSize += 26;
+    if (/[A-Z]/.test(password)) charsetSize += 26;
+    if (/[0-9]/.test(password)) charsetSize += 10;
+    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) charsetSize += 22;
+    if (/[^a-zA-Z0-9!@#$%^&*(),.?":{}|<>]/.test(password)) charsetSize += 10;
+
+    return charsetSize;
   }
 
   _shuffleString(str) {
@@ -143,4 +172,4 @@ class PasswordService {
   }
 }
 
-module.exports = PasswordService;
+module.exports = PasswordServiceImpl;
