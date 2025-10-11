@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClamAV Manager - Development Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .nav {
+            background: #34495e;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            padding: 15px 25px;
+            transition: background 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .nav a:hover, .nav a.active {
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom-color: #3498db;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            padding: 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 25px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .status-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .status-healthy .status-icon {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            color: white;
+        }
+
+        .status-warning .status-icon {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            color: white;
+        }
+
+        .status-error .status-icon {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+        }
+
+        .status-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .status-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .status-label {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        .log-viewer {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border-radius: 10px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            color: #0c5460;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .table th,
+        .table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .nav {
+                flex-direction: column;
+            }
+
+            .nav a {
+                text-align: center;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .refresh-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #3498db;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🛡️ ClamAV Manager</h1>
+            <p>Real-time monitoring and management for ClamAV daemon</p>
+        </header>
+
+        <nav class="nav">
+            <a href="#dashboard" class="active">Dashboard</a>
+            <a href="#logs">Log Viewer</a>
+            <a href="#settings">Settings</a>
+            <a href="#help">Help</a>
+        </nav>
+
+        <main class="content">
+            <div id="dashboard" class="tab-content">
+                <div class="alert alert-info">
+                    <strong>Development Environment</strong> - This is a development ClamAV manager dashboard. 
+                    Status information is updated automatically every 30 seconds.
+                </div>
+
+                <div class="status-grid">
+                    <div class="status-card status-healthy">
+                        <div class="status-icon">✓</div>
+                        <div class="status-title">Daemon Status</div>
+                        <div class="status-value" id="daemon-status">Healthy</div>
+                        <div class="status-label">ClamAV daemon is running</div>
+                    </div>
+
+                    <div class="status-card status-healthy">
+                        <div class="status-icon">🔍</div>
+                        <div class="status-title">Scans Today</div>
+                        <div class="status-value" id="scans-today">247</div>
+                        <div class="status-label">Files scanned successfully</div>
+                    </div>
+
+                    <div class="status-card status-warning">
+                        <div class="status-icon">⚠️</div>
+                        <div class="status-title">Threats Found</div>
+                        <div class="status-value" id="threats-found">3</div>
+                        <div class="status-label">Malware detected and quarantined</div>
+                    </div>
+
+                    <div class="status-card status-healthy">
+                        <div class="status-icon">📊</div>
+                        <div class="status-title">Avg Scan Time</div>
+                        <div class="status-value" id="avg-scan-time">125ms</div>
+                        <div class="status-label">Average processing time</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        System Information
+                        <span class="refresh-indicator" id="refresh-indicator" style="display: none;"></span>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <tr>
+                                <td><strong>ClamAV Version</strong></td>
+                                <td id="clamav-version">ClamAV 1.2.1</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Database Version</strong></td>
+                                <td id="db-version">26719 (2024-09-06)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Last Update</strong></td>
+                                <td id="last-update">2 hours ago</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Daemon Uptime</strong></td>
+                                <td id="daemon-uptime">2 days, 14 hours</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Active Connections</strong></td>
+                                <td id="active-connections">3/10</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Queue Length</strong></td>
+                                <td id="queue-length">0</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Quick Actions</div>
+                    <div class="card-body">
+                        <div class="log-controls">
+                            <button class="btn btn-success" onclick="updateDatabase()">Update Database</button>
+                            <button class="btn btn-warning" onclick="reloadDaemon()">Reload Daemon</button>
+                            <button class="btn btn-secondary" onclick="runHealthCheck()">Health Check</button>
+                            <a href="/logs/" class="btn">View Raw Logs</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="logs" class="tab-content" style="display: none;">
+                <div class="card">
+                    <div class="card-header">Log Viewer</div>
+                    <div class="card-body">
+                        <div class="log-controls">
+                            <button class="btn" onclick="loadLogs('clamd')">ClamAV Daemon</button>
+                            <button class="btn" onclick="loadLogs('freshclam')">FreshClam</button>
+                            <button class="btn btn-secondary" onclick="clearLogs()">Clear</button>
+                            <button class="btn btn-success" onclick="refreshLogs()">Refresh</button>
+                        </div>
+                        <div class="log-viewer" id="log-content">
+                            <div style="color: #3498db;">ClamAV Log Viewer</div>
+                            <div style="color: #95a5a6;">Select a log file to view its contents...</div>
+                            <div style="margin-top: 20px; color: #f39c12;">Available logs:</div>
+                            <div style="color: #2ecc71;">• /logs/clamd.log - Main daemon log</div>
+                            <div style="color: #2ecc71;">• /logs/freshclam.log - Database update log</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="settings" class="tab-content" style="display: none;">
+                <div class="card">
+                    <div class="card-header">Configuration</div>
+                    <div class="card-body">
+                        <div class="alert alert-warning">
+                            <strong>Note:</strong> Configuration changes require daemon restart to take effect.
+                        </div>
+                        <p>Current configuration files:</p>
+                        <ul>
+                            <li><strong>Daemon Config:</strong> /etc/clamav/clamd.conf</li>
+                            <li><strong>FreshClam Config:</strong> /etc/clamav/freshclam.conf</li>
+                            <li><strong>Database Location:</strong> /var/lib/clamav/</li>
+                        </ul>
+                        <div style="margin-top: 20px;">
+                            <a href="/logs/" class="btn">View Config Files</a>
+                            <button class="btn btn-warning" onclick="backupConfig()">Backup Config</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="help" class="tab-content" style="display: none;">
+                <div class="card">
+                    <div class="card-header">Help & Documentation</div>
+                    <div class="card-body">
+                        <h3>ClamAV Manager Usage</h3>
+                        <p>This dashboard provides real-time monitoring and management for your ClamAV daemon installation.</p>
+                        
+                        <h4>Key Features:</h4>
+                        <ul>
+                            <li><strong>Dashboard:</strong> Real-time status monitoring</li>
+                            <li><strong>Log Viewer:</strong> Browse daemon and update logs</li>
+                            <li><strong>Quick Actions:</strong> Update database, reload daemon</li>
+                            <li><strong>Health Checks:</strong> Automated status verification</li>
+                        </ul>
+
+                        <h4>Log Locations:</h4>
+                        <ul>
+                            <li><strong>Daemon Log:</strong> /var/log/clamav/clamd.log</li>
+                            <li><strong>Update Log:</strong> /var/log/clamav/freshclam.log</li>
+                            <li><strong>Database:</strong> /var/lib/clamav/</li>
+                        </ul>
+
+                        <div class="alert alert-info">
+                            <strong>Development Mode:</strong> This interface is for development use only. 
+                            For production deployments, consider using proper monitoring tools like Grafana, 
+                            Prometheus, or your preferred monitoring stack.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>ClamAV Manager Dashboard - Development Environment | 
+               <a href="https://www.clamav.net/" target="_blank" style="color: #3498db;">ClamAV Official Site</a>
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Simple tab navigation
+        function showTab(tabId) {
+            // Hide all tab content
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.style.display = 'none');
+            
+            // Remove active class from nav links
+            const navLinks = document.querySelectorAll('.nav a');
+            navLinks.forEach(link => link.classList.remove('active'));
+            
+            // Show selected tab
+            document.getElementById(tabId).style.display = 'block';
+            
+            // Add active class to current nav link
+            document.querySelector(`a[href="#${tabId}"]`).classList.add('active');
+        }
+
+        // Navigation event listeners
+        document.querySelectorAll('.nav a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tabId = link.getAttribute('href').substring(1);
+                showTab(tabId);
+            });
+        });
+
+        // Simulated functions for demo purposes
+        function updateDatabase() {
+            showLoading();
+            setTimeout(() => {
+                alert('Database update initiated! Check logs for progress.');
+                hideLoading();
+            }, 1000);
+        }
+
+        function reloadDaemon() {
+            showLoading();
+            setTimeout(() => {
+                alert('Daemon reload completed successfully.');
+                hideLoading();
+            }, 1500);
+        }
+
+        function runHealthCheck() {
+            showLoading();
+            setTimeout(() => {
+                alert('Health check completed. All systems operational.');
+                hideLoading();
+            }, 2000);
+        }
+
+        function loadLogs(logType) {
+            const logContent = document.getElementById('log-content');
+            const sampleLogs = {
+                'clamd': `Fri Sep  6 10:30:15 2024 -> ClamAV daemon 1.2.1 (OS: linux-gnu, ARCH: x86_64, CPU: x86_64)
+Fri Sep  6 10:30:15 2024 -> Running as user clamav (UID 101, GID 102)
+Fri Sep  6 10:30:15 2024 -> Log file size limited to 4294967295 bytes.
+Fri Sep  6 10:30:15 2024 -> Reading databases from /var/lib/clamav
+Fri Sep  6 10:30:16 2024 -> Loaded 8651234 signatures.
+Fri Sep  6 10:30:16 2024 -> TCP: Bound to address 0.0.0.0 port 3310
+Fri Sep  6 10:30:16 2024 -> TCP: Setting connection queue length to 15
+Fri Sep  6 10:30:16 2024 -> Limits: Files limit set to 10000
+Fri Sep  6 10:30:16 2024 -> Limits: Recursion level limit set to 16
+Fri Sep  6 10:30:16 2024 -> Archive support enabled.
+Fri Sep  6 10:30:16 2024 -> Ready to accept connections.`,
+                'freshclam': `Fri Sep  6 08:15:32 2024 -> ClamAV update process started at Fri Sep  6 08:15:32 2024
+Fri Sep  6 08:15:32 2024 -> Downloading main.cvd [100%]
+Fri Sep  6 08:15:45 2024 -> main.cvd updated (version: 62, sigs: 6647427)
+Fri Sep  6 08:15:45 2024 -> Downloading daily.cvd [100%]  
+Fri Sep  6 08:15:52 2024 -> daily.cvd updated (version: 27072, sigs: 2003807)
+Fri Sep  6 08:15:52 2024 -> Database updated (8651234 signatures) from database.clamav.net`
+            };
+            
+            logContent.innerHTML = sampleLogs[logType] || 'Log file not found or empty.';
+        }
+
+        function clearLogs() {
+            document.getElementById('log-content').innerHTML = 'Log viewer cleared.';
+        }
+
+        function refreshLogs() {
+            showLoading();
+            setTimeout(() => {
+                alert('Logs refreshed from server.');
+                hideLoading();
+            }, 1000);
+        }
+
+        function backupConfig() {
+            alert('Configuration backup created successfully.');
+        }
+
+        function showLoading() {
+            document.getElementById('refresh-indicator').style.display = 'inline-block';
+        }
+
+        function hideLoading() {
+            document.getElementById('refresh-indicator').style.display = 'none';
+        }
+
+        // Auto-refresh dashboard data every 30 seconds
+        setInterval(() => {
+            if (document.getElementById('dashboard').style.display !== 'none') {
+                // Update sample data (in real implementation, this would fetch from API)
+                const scansToday = Math.floor(Math.random() * 50) + 200;
+                const threatsFound = Math.floor(Math.random() * 10);
+                const avgScanTime = Math.floor(Math.random() * 100) + 80;
+                
+                document.getElementById('scans-today').textContent = scansToday;
+                document.getElementById('threats-found').textContent = threatsFound;
+                document.getElementById('avg-scan-time').textContent = avgScanTime + 'ms';
+            }
+        }, 30000);
+
+        // Initialize dashboard
+        showTab('dashboard');
+    </script>
+</body>
+</html>
